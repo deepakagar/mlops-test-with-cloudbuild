@@ -1,0 +1,69 @@
+steps:
+# 1. Build Docker image for training
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'Build Training Image'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/my-ml-trainer:latest', './trainer']
+  # Assuming 'trainer' directory contains your Dockerfile and training code
+
+# 2. Push Training Image to Artifact Registry
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'Push Training Image'
+  args: ['push', 'gcr.io/$PROJECT_ID/my-ml-trainer:latest']
+
+# 3. Trigger Vertex AI Training Job
+#    This step uses a custom Python script or gcloud command to start the training job.
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'Trigger Vertex AI Training'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    gcloud ai custom-jobs create \
+      --display-name="my-model-training-$BUILD_ID" \
+      --project=$PROJECT_ID \
+      --region=us-central1 \
+      --worker-pool-spec=machine-type=n1-standard-4,replica-count=1,container-image-uri=gcr.io/$PROJECT_ID/my-ml-trainer:latest \
+      --command="python", "-m", "trainer.task" \
+      --args="--data-path=gs://my-bucket/data/training_data.csv", "--model-dir=gs://my-bucket/models"
+    # The training script (trainer.task) would save the trained model artifact
+    # and potentially log metrics to Vertex AI Experiments.
+
+# 4. (Optional) Run Model Evaluation after training completes
+#    This might be a separate Cloud Build job triggered by the training completion,
+#    or a subsequent step if the training job is synchronous/short.
+#    For asynchronous training, you'd typically use Vertex AI Pipelines
+#    or a separate trigger for evaluation.
+#    For simplicity, let's assume the training job is synchronous or we poll.
+#    A more robust approach would involve Vertex AI Pipelines.
+
+# 5. Build Docker image for model serving (if needed for custom serving)
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'Build Serving Image'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/my-ml-predictor:latest', './predictor']
+  # Assuming 'predictor' directory contains your Dockerfile and serving code
+
+# 6. Push Serving Image to Artifact Registry
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'Push Serving Image'
+  args: ['push', 'gcr.io/$PROJECT_ID/my-ml-predictor:latest']
+
+# 7. Register Model in Vertex AI Model Registry and Deploy
+#    This step assumes the training job saved the model artifact to a known GCS path.
+#    We use a Python script to interact with Vertex AI SDK.
+- name: 'python' # Using the default python builder image
+  id: 'Register and Deploy Model'
+  entrypoint: 'python'
+  args: ['./scripts/deploy_model.py',
+         '--model-artifact-uri', 'gs://my-bucket/models/my_model_artifact', # This would be dynamically passed from training job
+         '--model-name', 'my-production-model',
+         '--endpoint-name', 'my-production-endpoint']
+  # The deploy_model.py script would:
+  #   a. Upload the model to Model Registry
+  #   b. Create or update a Vertex AI Endpoint with the new model version
+  #   c. Potentially set up Vertex AI Model Monitoring
+
+images:
+- 'gcr.io/$PROJECT_ID/my-ml-trainer:latest'
+- 'gcr.io/$PROJECT_ID/my-ml-predictor:latest'
+
+# You would configure a Cloud Build trigger to run this on code pushes to your repository.

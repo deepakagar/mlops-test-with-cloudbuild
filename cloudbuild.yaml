@@ -1,0 +1,60 @@
+steps:
+# 1. Install dependencies
+- name: 'python:3.9-slim'
+  entrypoint: 'pip'
+  args: ['install', '-r', 'requirements.txt', '--user']
+  id: 'Install Dependencies'
+
+# 2. Run Data Preparation
+- name: 'python:3.9-slim'
+  entrypoint: 'python'
+  args: ['data_prep.py', '--bucket_name', '${_GCS_BUCKET_NAME}', '--data_file_name', 'synthetic_data.csv']
+  id: 'Data Preparation'
+
+# 3. Run Model Training
+- name: 'python:3.9-slim'
+  entrypoint: 'python'
+  args: ['train.py', '--bucket_name', '${_GCS_BUCKET_NAME}', '--data_file_name', 'synthetic_data.csv', '--model_file_name', 'logistic_regression_model.joblib']
+  id: 'Model Training'
+
+# 4. Run Model Evaluation
+- name: 'python:3.9-slim'
+  entrypoint: 'python'
+  args: ['evaluate.py', '--bucket_name', '${_GCS_BUCKET_NAME}', '--data_file_name', 'synthetic_data.csv', '--model_file_name', 'logistic_regression_model.joblib']
+  id: 'Model Evaluation'
+
+# 5. (Optional) Conceptual Model Deployment to Vertex AI Model Registry
+# This step assumes you have a pre-built container image for serving or
+# you're just registering the model artifact.
+# For a real deployment, you'd typically use `gcloud ai models upload`
+# or `gcloud ai endpoints deploy-model`.
+# This example just shows how you might conceptually integrate.
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      echo "--- Simulating Model Deployment ---"
+      echo "Model gs://${_GCS_BUCKET_NAME}/logistic_regression_model.joblib would be registered to Vertex AI Model Registry."
+      echo "For actual deployment, use 'gcloud ai models upload' or similar commands."
+      # Example: gcloud ai models upload \
+      #   --display-name="my-mlops-model" \
+      #   --artifact-uri="gs://${_GCS_BUCKET_NAME}/logistic_regression_model.joblib" \
+      #   --region="${_GCP_REGION}" \
+      #   --project="${PROJECT_ID}" \
+      #   --container-image-uri="us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-0:latest" # Example for sklearn model
+  id: 'Model Deployment'
+
+# Define custom variables that can be passed to the build
+substitutions:
+  _GCS_BUCKET_NAME: 'mlops-testing-with-cloudbuild' # IMPORTANT: Replace with your actual GCS bucket name
+  _GCP_REGION: 'us-central1' # Replace with your desired GCP region
+
+options:
+  # Specify a service account with necessary permissions (Storage Admin, Vertex AI User, Cloud Build Service Account)
+  # to access GCS and potentially Vertex AI.
+  # Ensure your Cloud Build service account has these roles:
+  # - Cloud Build Service Account
+  # - Storage Admin (for GCS operations)
+  # - Vertex AI User (if deploying to Vertex AI)
+  logging: CLOUD_LOGGING_ONLY
